@@ -57,7 +57,7 @@ pg_dump_columns = {label:index + 1 for index, label in enumerate(command_output(
 # Return a dictionary of computed osd variances based on pg sizes and mappings
 def get_osd_variance():
     osd_size = {osd: 0 for osd in osds}
-    pg_data = [x for x in command_output("""ceph --cluster {} pg dump pgs 2> /dev/null | grep -v "PG_STAT" | awk '{{print ${} " " ${} " " ${}}}'""".format(cluster, pg_dump_columns['pg_stat'], pg_dump_columns['bytes'], pg_dump_columns['up'])).split('\n') if x != '']
+    pg_data = [x for x in command_output("""ceph --cluster {} pg dump pgs 2> /dev/null | grep -iv "PG_STAT" | awk '{{print ${} " " ${} " " ${}}}'""".format(cluster, pg_dump_columns['pg_stat'], pg_dump_columns['bytes'], pg_dump_columns['up'])).split('\n') if x != '']
     pgs = []
     pg_size = {}
     pg_osds = {}
