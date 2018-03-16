@@ -15,6 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import ast
+import operator
 import os
 import subprocess
 import time
@@ -92,7 +93,7 @@ best_variance = max([abs(1 - variance) for variance in osd_variance.values()])
 num_reweight_attempts = 0
 
 while num_reweight_attempts < max_reweight_attempts:
-    osd = max(osd_variance, key=osd_variance.get)
+    osd = max({osd:abs(1 - variance) for osd, variance in osd_variance.items()}.iteritems(), key=operator.itemgetter(1))[0]
     variance = osd_variance[osd]
     increment = crush_weight[osd] * abs(1 - variance) / 100
 
