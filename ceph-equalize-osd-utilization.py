@@ -102,13 +102,14 @@ while num_reweight_attempts < max_reweight_attempts:
     else:
         crush_weight[osd] += increment
 
-    print('osd.{} has a variance of {}, reweighting to {}'.format(osd, variance, crush_weight[osd]))
+    print('osd.{} has a variance of {}, reweighting to {}, {} iterations until exit'.format(osd, variance, crush_weight[osd], max_reweight_attempts - num_reweight_attempts - 1))
     run_command('ceph --cluster {} osd crush reweight osd.{} {} 2> /dev/null'.format(cluster, osd, crush_weight[osd]))
     wait_for_peering()
     osd_variance = get_osd_variance()
     max_variance = max([abs(1 - variance) for variance in osd_variance.values()])
 
     if max_variance < best_variance:
+        print('Found a new map with max variance {}'.format(max_variance))
         run_command('ceph --cluster {} osd getcrushmap -o crushmap.best 2> /dev/null'.format(cluster))
         best_variance = max_variance
         num_reweight_attempts = 0
