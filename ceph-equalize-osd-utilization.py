@@ -50,7 +50,11 @@ def wait_for_peering():
 # Get a list of OSDs, a dictionary of OSD disk sizes, and a dictionary of per-OSD pool storage based on replication strategy
 osds = sorted([int(x) for x in command_output('ceph --cluster {} osd ls'.format(cluster)).split('\n') if x != ''])
 osd_df_columns = {label:index + 1 for index, label in enumerate(command_output('ceph --cluster {} osd df | head -n1'.format(cluster)).lower().split())}
-osd_disk_size = {int(fields[0]): int(fields[1]) * 1073741824 for fields in [x.split() for x in command_output("""ceph --cluster {} osd df | head -n {} | tail -n {} | awk '{{print ${} " " ${}}}' | cut -d'G' -f1""".format(cluster, len(osds) + 1, len(osds), osd_df_columns['id'], osd_df_columns['size'])).split('\n') if x != '']}
+osd_disk_size = {int(fields[0]): float(fields[1]) for fields in [x.split() for x in command_output("""ceph --cluster {} osd df | head -n {} | tail -n {} | awk '{{print ${} " " ${}}}'""".format(cluster, len(osds) + 1, len(osds), osd_df_columns['id'], osd_df_columns['size'])).split('\n') if x != '']}
+
+for id in osd_disk_size:
+    osd_disk_size[id] = int(command_output('numfmt --from=iec {}T'.format(osd_disk_size[id])))
+
 pool_dividend = {int(fields[0]): int(fields[2]) if fields[1] == 'erasure' else 1 for fields in [x.split() for x in command_output("""ceph --cluster {} osd dump | grep pool | awk '{{print $2 " " $4 " " $8}}'""".format(cluster)).split('\n') if x != '']}
 crush_weight = {int(fields[0]): float(fields[1]) for fields in [x.split() for x in command_output("""ceph --cluster {} osd df | head -n {} | tail -n {} | awk '{{print ${} " " ${}}}'""".format(cluster, len(osds) + 1, len(osds), osd_df_columns['id'], osd_df_columns['weight'])).split('\n') if x != '']}
 pg_dump_columns = {label:index + 1 for index, label in enumerate(command_output('ceph --cluster {} pg dump pgs 2> /dev/null | head -n1'.format(cluster)).lower().replace('_stamp', ' stamp').split())}
@@ -58,7 +62,7 @@ pg_dump_columns = {label:index + 1 for index, label in enumerate(command_output(
 # Return a dictionary of computed osd variances based on pg sizes and mappings
 def get_osd_variance():
     osd_size = {osd: 0 for osd in osds}
-    pg_data = [x for x in command_output("""ceph --cluster {} pg dump pgs 2> /dev/null | grep -iv "PG_STAT" | awk '{{print ${} " " ${} " " ${}}}'""".format(cluster, pg_dump_columns['pg_stat'], pg_dump_columns['bytes'], pg_dump_columns['up'])).split('\n') if x != '']
+    pg_data = [x for x in command_output("""ceph --cluster {} pg dump pgs 2> /dev/null | head -n-2 | grep -iv "PG_STAT" | awk '{{print ${} " " ${} " " ${}}}'""".format(cluster, pg_dump_columns['pg_stat'], pg_dump_columns['bytes'], pg_dump_columns['up'])).split('\n') if x != '']
     pgs = []
     pg_size = {}
     pg_osds = {}
