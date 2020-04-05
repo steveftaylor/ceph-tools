@@ -1,5 +1,5 @@
 # ceph-equalize-osd-utilization
-# Copyright (C) 2018 Stephen Taylor
+# Copyright (C) 2018-2020 Stephen Taylor
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,18 +23,17 @@ import time
 # Change these to command-line arguments
 cluster = 'ceph'
 max_reweight_attempts = 1000
+devnull = open(os.devnull, 'w')
 
 
 # Run a shell command and return its output
 def command_output(command):
-    devnull = open(os.devnull, 'w')
     return subprocess.check_output(command, shell=True, stderr=devnull).decode('utf-8')
 
 
 # run a shell command and return its return code
 def run_command(command):
     try:
-        devnull = open(os.devnull, 'w')
         subprocess.check_call(command, shell=True, stdout=devnull, stderr=devnull)
         return 0
     except subprocess.CalledProcessError as e:
@@ -139,7 +138,7 @@ while num_reweight_attempts < max_reweight_attempts:
     max_variance = max([abs(1 - variance) for variance in osd_variance.values()])
 
     if max_variance < best_variance:
-        print('Found a new map with max variance {}'.format(max_variance))
+        print('Found a new map with max variance {}, resetting iteration counter'.format(max_variance))
         run_command('cp crushmap crushmap.best')
         best_variance = max_variance
         num_reweight_attempts = 0
@@ -148,7 +147,13 @@ while num_reweight_attempts < max_reweight_attempts:
 
 # We have gotten as close as we can within the maximum number of unsuccessful attempts
 # Set the optimal crush map and delete the map files from disk
+print('Uploading best-case crushmap to the Ceph cluster')
 run_command('ceph --cluster {} osd setcrushmap -i crushmap.best'.format(cluster))
+
+print('Cleaning up temporary files')
 os.remove('crushmap.best')
 os.remove('crushmap')
 os.remove('osdmap')
+
+devnull.close()
+print('Done')
