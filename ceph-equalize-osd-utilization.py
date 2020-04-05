@@ -27,27 +27,33 @@ max_reweight_attempts = 1000
 
 # Run a shell command and return its output
 def command_output(command):
-    return subprocess.check_output(command, shell=True).decode('utf-8')
+    devnull = open(os.devnull, 'w')
+    return subprocess.check_output(command, shell=True, stderr=devnull).decode('utf-8')
 
 
 # run a shell command and return its return code
 def run_command(command):
     try:
-        subprocess.check_call(command, shell=True)
+        devnull = open(os.devnull, 'w')
+        subprocess.check_call(command, shell=True, stdout=devnull, stderr=devnull)
         return 0
     except subprocess.CalledProcessError as e:
         return e.returncode
 
 
 # The OSD and pool data are expected to remain static during the reweighting process
-run_command('ceph --cluster {} osd getmap -o osdmap 2> /dev/null'.format(cluster))
-run_command('osdmaptool osdmap --export-crush crushmap.best 2> /dev/null'.format(cluster))
+print('Downloading osdmap from Ceph cluster and extracting crushmap')
+run_command('ceph --cluster {} osd getmap -o osdmap'.format(cluster))
+run_command('osdmaptool osdmap --export-crush crushmap.best'.format(cluster))
 run_command('cp crushmap.best crushmap')
 
 # Get a list of OSDs, a dictionary of OSD disk sizes, and a dictionary of per-OSD pool storage based on replication strategy
+print('Getting the OSD list')
 osds = sorted([int(x) for x in
                command_output("""crushtool -i crushmap --tree | grep osd | sort | uniq | awk '{print $1}'""").split(
                    '\n') if x != ''])
+
+print('Getting disk sizes')
 osd_df_columns = {label: index + 1 for index, label in
                   enumerate(command_output('ceph --cluster {} osd df | head -n1'.format(cluster)).lower().split())}
 osd_disk_size = {int(fields[0]): float(fields[1]) for fields in [x.split() for x in command_output(
@@ -62,12 +68,17 @@ osd_disk_size = {int(fields[0]): float(fields[1]) for fields in [x.split() for x
 for id in osd_disk_size:
     osd_disk_size[id] = int(command_output('numfmt --from=iec {}T'.format(osd_disk_size[id])))
 
+print('Getting pool information')
 pool_dividend = {int(fields[0]): int(fields[2]) if fields[1] == 'erasure' else 1 for fields in [x.split() for x in
                                                                                                 command_output(
-                                                                                                    """osdmaptool osdmap --dump 2> /dev/null | grep pool | awk '{{print $2 " " $4 " " $8}}'""").split(
+                                                                                                    """osdmaptool osdmap --dump | grep pool | awk '{{print $2 " " $4 " " $8}}'""").split(
                                                                                                     '\n') if x != '']}
+
+print('Getting current OSD crush weights')
 crush_weight = {int(fields[0]): float(fields[1]) for fields in [x.split() for x in command_output(
     """crushtool -i crushmap --tree | grep osd | sort | uniq | awk '{{print $1 " " $3}}'""").split('\n') if x != '']}
+
+print('Getting sizes for each PG in the cluster')
 pg_size = {fields[0]: int(fields[1]) for fields in [x.split() for x in command_output(
     """ceph --cluster {} pg ls | head -n-2 | tail -n+2 | awk '{{print $1 " " $6}}'""".format(cluster)).split('\n') if
                                                     x != '']}
@@ -77,7 +88,7 @@ pg_size = {fields[0]: int(fields[1]) for fields in [x.split() for x in command_o
 def get_osd_variance():
     osd_size = {osd: 0 for osd in osds}
     pg_data = [x for x in command_output(
-        """osdmaptool osdmap --mark-up-in --test-map-pgs-dump | awk '/\..*\[.*\]/{{print $1 " " $2}}'""").split('\n') if
+        """osdmaptool osdmap --test-map-pgs-dump | awk '/\\..*\\[.*\\]/{{print $1 " " $2}}'""").split('\n') if
                x != '']
     pgs = []
     pg_osds = {}
@@ -117,12 +128,13 @@ while num_reweight_attempts < max_reweight_attempts:
     else:
         crush_weight[osd] += increment
 
-    print('osd.{} has a variance of {}, reweighting to {}, {} iterations until exit'.format(osd, variance,
-                                                                                            crush_weight[osd],
-                                                                                            max_reweight_attempts - num_reweight_attempts - 1))
+    if ((max_reweight_attempts - num_reweight_attempts - 1) % 10 == 0):
+        print('osd.{} has a variance of {}, reweighting to {}, {} iterations until exit'.format(osd, variance,
+                                                                                                crush_weight[osd],
+                                                                                                max_reweight_attempts - num_reweight_attempts - 1))
     run_command(
-        'crushtool -i crushmap --reweight-item osd.{} {} -o crushmap 2> /dev/null'.format(osd, crush_weight[osd]))
-    run_command('osdmaptool osdmap --import-crush crushmap 2> /dev/null')
+        'crushtool -i crushmap --reweight-item osd.{} {} -o crushmap'.format(osd, crush_weight[osd]))
+    run_command('osdmaptool osdmap --import-crush crushmap')
     osd_variance = get_osd_variance()
     max_variance = max([abs(1 - variance) for variance in osd_variance.values()])
 
@@ -136,7 +148,7 @@ while num_reweight_attempts < max_reweight_attempts:
 
 # We have gotten as close as we can within the maximum number of unsuccessful attempts
 # Set the optimal crush map and delete the map files from disk
-run_command('ceph --cluster {} osd setcrushmap -i crushmap.best 2> /dev/null'.format(cluster))
+run_command('ceph --cluster {} osd setcrushmap -i crushmap.best'.format(cluster))
 os.remove('crushmap.best')
 os.remove('crushmap')
 os.remove('osdmap')
