@@ -125,7 +125,7 @@ while num_reweight_attempts < max_reweight_attempts:
     osd_variances = {osd: abs(1 - variance) for osd, variance in osd_variance.items()}
     i = 0
     while i < num_reweight_osds_per_iteration:
-        osd = max(osd_variances.iteritems(), key=operator.itemgetter(1))[0]
+        osd = sorted(osd_variances, key=osd_variances.get, reverse=True)[0]
         osd_variances.pop(osd, None)
         variance = osd_variance[osd]
         increment = crush_weight[osd] * abs(1 - variance) / 100
